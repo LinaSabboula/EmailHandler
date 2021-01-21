@@ -2,9 +2,12 @@ import imaplib
 import getpass
 import email
 import csv
+import time
+
 from imapclient import IMAPClient
 import datetime
 from itertools import chain
+from awesome_progress_bar import ProgressBar
 
 imaplib._MAXLINE = 1000000
 class EmailHandler:
@@ -35,7 +38,7 @@ class EmailHandler:
         """
         try:
             self.folder = self.server.select_folder(folder)
-            print("%d messages in %s "%(self.folder[b'EXISTS'], folder))
+            return self.folder[b'EXISTS']
         except IMAPClient.Error as e:
             print(e)
     def search(self, search_term):
@@ -92,7 +95,6 @@ class EmailHandler:
                     self.dictionary[sender_mail][3] = email_date
 
 
-
     def create_csv(self, report_name):
         """
 
@@ -125,40 +127,42 @@ class EmailHandler:
         UIDs = list(chain.from_iterable(UIDs))
         return UIDs
 
+    def delete(self, UIDs):
+        total = len(UIDs)
+        bar = ProgressBar(total, use_eta=True, bar_length=70, spinner_type='db')
+        for message in UIDs:
+            try:
+                self.server.add_gmail_labels(message,'\Trash', silent=True)
+                bar.iter(' Moved to Trash')
+            except:
+                bar.stop()
 
 
 handler = EmailHandler()
 handler.login(username = input("Username: "), password=getpass.getpass(prompt='Password: '))
 # handler.login(username, password)
 
-# search_term1 = ['FROM', 'notify@twitter.com']
-# search_term2 = ['SINCE', datetime.date(2019, 6, 1)]
-
-# search_result1 = handler.search(search_term1)
-# search_result2 = handler.search(search_term2)
-# res = list(set(search_result1).intersection(search_result2))
-# print(set(res1).intersection(res2))
-# print(res)
-
-# ========================================
-
-
-handler.open_folder("inbox")
+inbox_count = handler.open_folder("inbox")
+print("%d messages in inbox "%inbox_count)
 create_report = input("Create Report Y/N:  ")
 if create_report.lower() == "y":
     search_term = ['ALL']
     search_result = handler.search(search_term)
     if len(search_result) != 0:
         handler.get_messages(search_result)
-        handler.create_csv("email_reports ")
+        handler.create_csv("email_reports - new")
     else:
         print("No messages")
 delete_file = 'delete_report.csv'
-read_csv = input("Would you like to read csv specified for deletion?")
+read_csv = input("Would you like to read csv specified for deletion? Y/N: ")
 if read_csv.lower() == 'y':
     UIDs = handler.read_csv(delete_file)
-    delete = input("%d emails selected for deletion, would you like to proceed?" %len(UIDs))
+    delete = input("%d out of %d emails selected for deletion, would you like to proceed? Y/N: " %(len(UIDs), inbox_count))
     if delete.lower() == 'y':
-        pass
+        handler.delete(UIDs)
+
+trash_count = handler.open_folder("[Gmail]/Trash")
+print("%d emails are currently in trash"%trash_count)
+
 
 
