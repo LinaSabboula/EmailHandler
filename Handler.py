@@ -2,8 +2,6 @@ import imaplib
 import getpass
 import email
 import csv
-import time
-
 from imapclient import IMAPClient
 import datetime
 from itertools import chain
@@ -11,18 +9,25 @@ from awesome_progress_bar import ProgressBar
 
 imaplib._MAXLINE = 1000000
 class EmailHandler:
+    """
+    Class that will summarize emails in a csv report and enables you to delete certain marked emails
 
+    Attributes:
+        server(IMAPClient): IMAPClient instance
+        report_dictionary(dict): store relevant email information for reporting
+    """
     def __init__(self):
-
         self.server = IMAPClient('imap.gmail.com', use_uid=True, ssl=True)
-
+        self.report_dictionary = {}
 
     def login(self, username, password):
         """
+        attempts to login to email provided the email address and password
 
-        :param username:
-        :param password:
-        :return:
+        Args:
+            username (str): email address
+            password (str): email password
+
         """
         try:
             self.server.login(username, password)
@@ -32,20 +37,32 @@ class EmailHandler:
 
     def open_folder(self, folder):
         """
+        Opens certain selected folder from your email associated with server
 
-        :param folder:
-        :return:
+        Args:
+            folder (str): name of the folder
+
+        Returns:
+            folder[b'EXISTS'] (int): The number of emails in selected folder
+
         """
         try:
-            self.folder = self.server.select_folder(folder)
-            return self.folder[b'EXISTS']
+            folder = self.server.select_folder(folder)
+            return folder[b'EXISTS']
         except IMAPClient.Error as e:
             print(e)
     def search(self, search_term):
         """
-        search_term: List
-                    a search term to retrieve specific email messages that satisfy term
+        Fetches emails that satisfy search string
+
+        Args:
+            search_term: (list((str)): a search term to retrieve specific email messages that satisfy term
+
+        Returns:
+            messages (list(int)): list of email unique identifiers (UID) that satisfy search term
+
         """
+
         try:
             if len(search_term) > 1:
                 print("Fetching messages from %s.."%search_term[1])
@@ -58,11 +75,14 @@ class EmailHandler:
 
     def get_messages(self, messages):
         """
+        fetches the email messages and keeps track and formats the sender name, email address, count, oldest email,
+        newest email, one subject to add in report_dictionary to use for report later
 
-        :return:
+        Args:
+            messages(List(int)): list of email unique identifiers (UID) that satisfy search term
+
         """
         print("Formatting messages..")
-        self.dictionary = {}
         for uid, message_data in self.server.fetch(messages, ['ENVELOPE']).items():
             envelope = message_data[b'ENVELOPE']
             email_date = envelope.date
@@ -82,24 +102,27 @@ class EmailHandler:
                     subject = str(subject, 'utf-8')
             else:
                 subject = 'None'
-            if sender_mail not in self.dictionary:
+            if sender_mail not in self.report_dictionary:
                 # key: sender email
-                # values: [sender name, email count, oldest date from sender, newest date from sender]
-                self.dictionary[sender_mail] = [sender_name, 1, email_date, email_date,subject]
+                # values: [sender name, email count, oldest date from sender, newest date from sender, subject of email]
+                # each email account will only have one subject value, just to quickly see what kind of emails are associated with address
+                self.report_dictionary[sender_mail] = [sender_name, 1, email_date, email_date, subject]
             else:
-                self.dictionary[sender_mail][1] += 1 # increase email count
-                # self.dictionary[sender_mail][4].append(subject)
-                if self.dictionary[sender_mail][2] > email_date: # adjusting oldest date
-                    self.dictionary[sender_mail][2] = email_date
-                if self.dictionary[sender_mail][3] < email_date: #adjusting newest date
-                    self.dictionary[sender_mail][3] = email_date
+                self.report_dictionary[sender_mail][1] += 1 # increase email count
+                if self.report_dictionary[sender_mail][2] > email_date: # adjusting oldest date
+                    self.report_dictionary[sender_mail][2] = email_date
+                if self.report_dictionary[sender_mail][3] < email_date: #adjusting newest date
+                    self.report_dictionary[sender_mail][3] = email_date
 
 
     def create_csv(self, report_name):
         """
+        Creates a csv report called 'report_name' followed by today's date,
+        with the data generated from the report_dictionary values from the get_messages function
 
-        :param report_name:
-        :return:
+        Args:
+            report_name(str): the name for the csv report
+
         """
         print("creating report..")
         now = datetime.datetime.now().strftime("%d-%m-%Y")
@@ -107,14 +130,20 @@ class EmailHandler:
         with open(file_name, mode='w', newline="", encoding='utf-8-sig') as csvfile:
             writer = csv.writer(csvfile, delimiter=",", quotechar='"', quoting=csv.QUOTE_MINIMAL)
             writer.writerow(["Name", "Email", "Count", "Oldest Email", "Newest Email","Subjects"])
-            for key, value in self.dictionary.items():
+            for key, value in self.report_dictionary.items():
                 writer.writerow([value[0],key, value[1], value[2], value[3], value[4]])
 
     def read_csv(self, file):
         """
+        Reads a csv file and for each row where "Delete" column is marked as "1" and
+        gets the UIDs for all emails sent from this email address
 
-        :param file:
-        :return:
+        Args:
+            file(str): Name of the file to read data marked for deletion
+
+        Returns:
+             UIDs(list(int)): list of email unique identifiers (UID) that have been marked for deletion
+
         """
         print("reading csv")
         UIDs = []
@@ -128,6 +157,13 @@ class EmailHandler:
         return UIDs
 
     def delete(self, UIDs):
+        """
+        Move specified emails to Trash box
+
+        Args:
+            UIDs(list(int)): list of email unique identifiers (UID) that have been marked for deletion
+
+        """
         total = len(UIDs)
         bar = ProgressBar(total, use_eta=True, bar_length=70, spinner_type='db')
         for message in UIDs:
